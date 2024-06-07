@@ -1,34 +1,61 @@
-pipeline{
-    agent any
-    environment {
+pipeline {
+  agent any
+  environment {
     FIREBASE_DEPLOY_TOKEN = credentials('firebase-token')
+    TEST_RESULT_FILE = 'test_result.txt'
+  }  
+  stages{
+    stage('Building'){
+        steps{
+            echo 'Building'
+        }
     }
+    stage('Testing'){
+        steps{
+            sh 'firebase deploy -P devops-proj-testing --token "$FIREBASE_DEPLOY_TOKEN"' 
+            script{
+                try{
+                    //Install Selenium webdriver
+                    sh 'npm install selenium-webdriver'
+                    
+                    //Run the test and capture the output
+                    def output = sh(script: 'node test/test.js', returnStdout: true).trim()
 
- stages{
-        stage('Building'){
-            steps{
-           // sh 'npm install -g firebase-tools'
-                echo 'Biulding...'
+                    //Debugging printing the output
+                    echo "Test Output: ${output}"
+
+                    //Write the result to a file
+
+                    if(output.contains('Test Success')){
+                        writeFile file: env.TEST_RESULT_FILE, text: 'true'
+                    }else{
+                        writeFile file: env.TEST_RESULT_FILE, text: 'false'
+                    }
+                }catch (Exception e) {
+                    echo "Test failed: ${e.message}"
+                    writeFile file: env.TEST_RESULT_FILE, text: 'false'
+                }
             }
-        } 
-        stage('Testing Environment'){
-            steps{
-            sh 'firebase deploy -P testing-sqa113-pa9 --token "$FIREBASE_DEPLOY_TOKEN"'
-            //input message: 'After testing. Do you want to continue with Staging Environment? (Click "Proceed" to continue)'
-            }
-        } 
-        stage('Staging Environment'){
-            steps{
-             //sh 'firebase deploy -P devops-proj-staging --token "$FIREBASE_DEPLOY_TOKEN"'
-             echo "Staging...."
-            }
-        } 
-        stage('Production Environment'){
-            steps{
-            //sh 'firebase deploy -P devops-proj-production-bcfd9 --token "$FIREBASE_DEPLOY_TOKEN"'
-            echo "Production...."
-            }
-        } 
+            
+
+        }
     }
-
+    stage('Staging'){
+        when{
+               expression {
+                 // Read the test result from the file id true continue
+                def testResult = readFile(env.TEST_RESULT_FILE).trim()
+                return testResult == 'true'
+                }           
+             }
+        steps{
+          sh 'firebase deploy -P devops-proj-staging --token "$FIREBASE_DEPLOY_TOKEN"'
+        }
+    }
+    stage('Production'){
+        steps{
+               sh 'firebase deploy -P devops-proj-production-bcfd9 --token "$FIREBASE_DEPLOY_TOKEN"'
+        }
+    }
+  }
 }
